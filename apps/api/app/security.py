@@ -126,6 +126,8 @@ def validate_sql(sql: str, catalog: SchemaCatalog, role: Role, max_rows: int) ->
             raise SafetyError("unknown_column", f"Unapproved field: {name}")
     if role == Role.SALES_REP and "sales_reps" in tables:
         raise SafetyError("authorization", "Sales representatives cannot query rep directory data.")
+    if role == Role.SALES_REP:
+        _require_single_authorizable_scope(tree)
     existing_limit = tree.args.get("limit")
     if existing_limit is None:
         tree = tree.limit(max_rows)
@@ -142,6 +144,34 @@ def validate_sql(sql: str, catalog: SchemaCatalog, role: Role, max_rows: int) ->
     return ValidatedSQL(sql=tree.sql(dialect="sqlite"), tables=tables, enforced_limit=max_rows)
 
 
+def _require_single_authorizable_scope(tree: exp.Expression) -> None:
+    """Reject sales-rep SQL whose scope cannot be statically verified.
+
+    `apply_role_filter` enforces row-level access by appending one predicate to one WHERE
+    clause. That is only sound when the statement has a single scope to constrain. A CTE, a
+    subquery, or a second reference to the same table introduces a scope the predicate never
+    reaches, and each one is enough to read another representative's customers. Rather than
+    trying to rewrite every scope, refuse the shapes this validator cannot prove contained.
+    """
+    if tree.find(exp.With) is not None:
+        raise SafetyError(
+            "authorization",
+            "Sales representative queries cannot use CTEs; authorization scope is unverifiable.",
+        )
+    if any(select is not tree for select in tree.find_all(exp.Select)):
+        raise SafetyError(
+            "authorization",
+            "Sales representative queries cannot use subqueries; authorization scope is unverifiable.",
+        )
+    references = [table.name for table in tree.find_all(exp.Table) if table.name]
+    duplicates = {name for name in references if references.count(name) > 1}
+    if duplicates:
+        raise SafetyError(
+            "authorization",
+            f"Sales representative queries cannot reference {sorted(duplicates)[0]} more than once.",
+        )
+
+
 def apply_role_filter(validated: ValidatedSQL, role: Role, user_id: str) -> str:
     """Server-side policy injection. Demo-generated sales SQL always has an orders scope."""
     if role == Role.ANALYST:
@@ -151,7 +181,14 @@ def apply_role_filter(validated: ValidatedSQL, role: Role, user_id: str) -> str:
             "authorization", "Sales representative queries need an order scope for authorization."
         )
     tree = sqlglot.parse_one(validated.sql, read="sqlite")
-    order_table = next(table for table in tree.find_all(exp.Table) if table.name == "orders")
+    order_tables = [table for table in tree.find_all(exp.Table) if table.name == "orders"]
+    if len(order_tables) != 1:
+        # Defence in depth: validate_sql already rejects this, but the predicate would
+        # silently bind to only the first reference if it ever got here.
+        raise SafetyError(
+            "authorization", "Exactly one orders reference is required to enforce access scope."
+        )
+    order_table = order_tables[0]
     order_ref = order_table.alias_or_name
     predicate = f"{order_ref}.customer_id IN (SELECT ca.customer_id FROM customer_assignments AS ca JOIN sales_reps AS sr ON sr.id = ca.sales_rep_id WHERE sr.user_id = :authorized_user_id)"
     # AST mutation puts the predicate before GROUP BY/ORDER BY/LIMIT and combines an existing WHERE.
