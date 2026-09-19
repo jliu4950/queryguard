@@ -1,0 +1,3 @@
+-- The SQLite schema and fictional seed records are created idempotently by
+-- `python -m app.seed`. Keeping the ORM models as the source of schema truth
+-- prevents a second, drifting SQL definition in this small demo.

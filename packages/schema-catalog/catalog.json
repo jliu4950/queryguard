@@ -1,0 +1,12 @@
+{
+  "version": "2026-01-01",
+  "tables": [
+    {"name":"customers","description":"Fictional commerce customers. Analysts should use customer name only when needed; do not expose email or phone.","columns":{"id":"customer identifier","name":"display name","email":"sensitive contact field","region":"sales region","created_at":"signup timestamp"},"joins":["customers.id = orders.customer_id","customers.id = customer_assignments.customer_id"]},
+    {"name":"products","description":"Fictional product catalog.","columns":{"id":"product identifier","name":"product name","category":"catalog category","unit_price":"list price","active":"whether product is active"},"joins":["products.id = order_items.product_id"]},
+    {"name":"orders","description":"Completed or refunded fictional customer orders. Revenue uses total_amount for completed orders.","columns":{"id":"order identifier","customer_id":"customer identifier","sales_rep_id":"assigned rep identifier","status":"completed or refunded","ordered_at":"order timestamp","total_amount":"order total in USD"},"joins":["orders.id = order_items.order_id","orders.id = returns.order_id","orders.customer_id = customers.id"]},
+    {"name":"order_items","description":"Line items for each order. Product units sold use quantity.","columns":{"id":"line identifier","order_id":"order identifier","product_id":"product identifier","quantity":"units purchased","unit_price":"price at time of purchase"},"joins":["order_items.order_id = orders.id","order_items.product_id = products.id"]},
+    {"name":"returns","description":"Returns linked to an order. Return rate is returned orders divided by completed or refunded orders.","columns":{"id":"return identifier","order_id":"order identifier","reason":"return reason","returned_at":"return timestamp","refund_amount":"refunded USD"},"joins":["returns.order_id = orders.id"]},
+    {"name":"sales_reps","description":"Demo sales representatives.","columns":{"id":"rep identifier","user_id":"demo request user identifier","name":"rep display name","region":"sales region"},"joins":["sales_reps.id = customer_assignments.sales_rep_id"]},
+    {"name":"customer_assignments","description":"Authoritative demo mapping from sales reps to customers. Required for sales_rep authorization.","columns":{"sales_rep_id":"rep identifier","customer_id":"customer identifier"},"joins":["customer_assignments.customer_id = customers.id"]}
+  ]
+}

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QueryGuard</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #08111f; color: #e5edf7; }
+      body { max-width: 1060px; margin: 0 auto; padding: 40px 20px; }
+      section { border: 1px solid #334155; border-radius: 12px; padding: 20px; margin-top: 20px; background: #0f1b2d; }
+      textarea, select, button { font: inherit; padding: 9px; border-radius: 7px; border: 1px solid #475569; background: #091321; color: inherit; }
+      textarea { box-sizing: border-box; width: 100%; min-height: 82px; margin: 12px 0; }
+      button { cursor: pointer; } button.primary { background: #22c55e; color: #052e16; font-weight: bold; }
+      .examples, .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .hidden { display: none; } .ok { border-color: #22c55e; } .error { border-color: #f59e0b; color: #fde68a; }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; } th, td { padding: 10px; border-bottom: 1px solid #334155; text-align: left; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; color: #a5f3fc; } summary { cursor: pointer; font-weight: 700; }
+      .muted { color: #94a3b8; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <header><p class="muted">QUERYGUARD / OFFLINE DEMO</p><h1>Safe Text-to-SQL analysis</h1><p>Fictional commerce data. Each request is retrieved, checked, role-scoped, limited, and explained.</p></header>
+    <section>
+      <div class="examples" id="examples"></div>
+      <form id="query-form">
+        <textarea id="question" aria-label="Question">Show monthly revenue trend</textarea>
+        <div class="controls">
+          <label>Role <select id="role"><option value="analyst">Analyst</option><option value="sales_rep">Sales rep</option></select></label>
+          <label>Demo user <select id="user"><option value="demo_analyst">demo_analyst</option></select></label>
+          <button class="primary" type="submit">Run safe query</button>
+        </div>
+      </form>
+    </section>
+    <section id="state" class="hidden"></section>
+    <section id="result" class="hidden">
+      <div id="summary"></div>
+      <p class="muted" id="metrics"></p>
+      <div id="table-wrap"></div>
+      <details><summary>Generated SQL</summary><pre id="sql"></pre></details>
+      <details><summary>Retrieved schema context and safety status</summary><ul id="context"></ul></details>
+    </section>
+    <script>
+      const examples = ["Show monthly revenue trend", "What is the return rate?", "Which products are best selling?", "Show my customer orders"];
+      const question = document.querySelector("#question"), role = document.querySelector("#role"), user = document.querySelector("#user");
+      examples.forEach(text => { const button = document.createElement("button"); button.type = "button"; button.textContent = text; button.onclick = () => question.value = text; document.querySelector("#examples").append(button); });
+      role.onchange = () => { user.innerHTML = role.value === "sales_rep" ? '<option>rep_alex</option><option>rep_sam</option>' : '<option>demo_analyst</option>'; };
+      document.querySelector("#query-form").onsubmit = async (event) => {
+        event.preventDefault(); const state = document.querySelector("#state"), result = document.querySelector("#result"); state.className = ""; state.textContent = "Checking and running query…"; result.className = "hidden";
+        try {
+          const response = await fetch("/api/query", { method: "POST", headers: {"content-type":"application/json"}, body: JSON.stringify({question: question.value, role: role.value, user_id: user.value}) });
+          const payload = await response.json(); if (!response.ok) throw new Error(payload.error?.message || "The service rejected the request.");
+          state.className = "hidden"; result.className = "ok"; document.querySelector("#summary").textContent = payload.answer_summary;
+          document.querySelector("#metrics").textContent = `Generation: ${payload.trace.generation_ms} ms · Cache: ${payload.trace.cache_hit ? "hit" : "miss"} · Authorization: ${payload.trace.safety.authorization}`;
+          document.querySelector("#sql").textContent = payload.sql;
+          const table = document.createElement("table"); table.innerHTML = `<thead><tr>${payload.columns.map(c => `<th>${c}</th>`).join("")}</tr></thead><tbody>${payload.rows.map(r => `<tr>${r.map(v => `<td>${String(v)}</td>`).join("")}</tr>`).join("")}</tbody>`; const wrap = document.querySelector("#table-wrap"); wrap.innerHTML = ""; wrap.append(table);
+          document.querySelector("#context").innerHTML = payload.trace.schema_documents.map(d => `<li><b>${d.table}</b> (score ${d.score}): ${d.description}</li>`).join("");
+        } catch (error) { state.className = "error"; state.textContent = `Query not run: ${error.message || "Backend unavailable."}`; }
+      };
+    </script>
+  </body>
+</html>
