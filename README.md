@@ -1,5 +1,7 @@
 # QueryGuard
 
+[![CI](https://github.com/jliu4950/queryguard/actions/workflows/ci.yml/badge.svg)](https://github.com/jliu4950/queryguard/actions)
+
 **QueryGuard is a security-focused Text-to-SQL demo that turns questions about fictional ecommerce data into validated, authorized, read-only SQLite queries with an inspectable execution trace.**
 
 This is an independent portfolio project. It does not use or reference company code, company data, customer data, or production metrics.
