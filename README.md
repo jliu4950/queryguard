@@ -1,10 +1,27 @@
 # QueryGuard
 
-[![CI](https://github.com/jliu4950/queryguard/actions/workflows/ci.yml/badge.svg)](https://github.com/jliu4950/queryguard/actions)
+[![CI](https://github.com/jliu4950/queryguard/actions/workflows/ci.yml/badge.svg)](https://github.com/jliu4950/queryguard/actions) [![Python 3.9 – 3.13](https://img.shields.io/badge/python-3.9%20%E2%80%93%203.13-3776AB?logo=python&logoColor=white)](https://github.com/jliu4950/queryguard/actions) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **QueryGuard is a security-focused Text-to-SQL demo that turns questions about fictional ecommerce data into validated, authorized, read-only SQLite queries with an inspectable execution trace.**
 
 This is an independent portfolio project. It does not use or reference company code, company data, customer data, or production metrics.
+
+## Demo
+
+A sales rep asks for "my customer orders". The rep never states *which* customers are
+theirs, and the model is never asked to scope the query — the `customer_assignments`
+predicate in the generated SQL is injected server-side after validation.
+
+![Sales rep query with the server-injected authorization predicate visible in the generated SQL](docs/assets/demo-authorized-query.png)
+
+The same pipeline stops a prompt-injection attempt during input validation, before any
+SQL is generated:
+
+![A prompt-injection question rejected with "The question contains a blocked instruction pattern"](docs/assets/demo-rejected-injection.png)
+
+These images are build artifacts. Regenerate them against a running server with
+`python scripts/capture_demo.py` (see [Development](#development)) rather than editing
+them by hand.
 
 ## Architecture
 
@@ -69,9 +86,22 @@ Open `http://127.0.0.1:8000/`. The SQLite seed setup is idempotent, and evaluati
 CI also runs:
 
 ```bash
-ruff format apps/api evals --check
-ruff check apps/api evals
+ruff format apps/api evals scripts --check
+ruff check apps/api evals scripts
 ```
+
+## Development
+
+The README screenshots are generated from a live server so they cannot drift from the
+actual dashboard. With the server running:
+
+```bash
+python -m pip install -e ".[screenshots]"
+python scripts/capture_demo.py --base-url http://127.0.0.1:8000
+```
+
+Playwright drives the locally installed Google Chrome, so no additional browser download
+is needed. This is developer tooling only and is not part of the CI dependency set.
 
 ## API example
 
