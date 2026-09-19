@@ -20,3 +20,5 @@ build/
 *.egg-info/
 evals/eval.db
 evals/latest.json
+evals/adversarial.db
+evals/adversarial_latest.json

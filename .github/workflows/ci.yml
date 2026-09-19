@@ -21,3 +21,5 @@ jobs:
       - run: python -m app.seed
       - run: pytest -q
       - run: python evals/run_evals.py
+      # Fails the build on any out-of-scope disclosure, not just on a changed metric.
+      - run: python evals/run_adversarial.py
