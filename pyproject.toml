@@ -19,6 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9", "ruff>=0.6,<1"]
+# Only needed to regenerate the README screenshots via scripts/capture_demo.py.
+screenshots = ["playwright>=1.44,<2"]
 
 [tool.setuptools]
 package-dir = {"" = "apps/api"}

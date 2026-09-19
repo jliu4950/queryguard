@@ -16,8 +16,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -e ".[dev]"
-      - run: ruff format apps/api evals --check
-      - run: ruff check apps/api evals
+      - run: ruff format apps/api evals scripts --check
+      - run: ruff check apps/api evals scripts
       - run: python -m app.seed
       - run: pytest -q
       - run: python evals/run_evals.py
