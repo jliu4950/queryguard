@@ -133,10 +133,12 @@ def validate_sql(sql: str, catalog: SchemaCatalog, role: Role, max_rows: int) ->
         tree = tree.limit(max_rows)
     else:
         literal = existing_limit.expression
-        try:
-            requested = int(literal.name)
-        except (ValueError, TypeError) as exc:
-            raise SafetyError("unsafe_sql", "LIMIT must be a static integer.") from exc
+        # `LIMIT -1` parses as Neg(Literal(1)), whose .name is "1". Reading the name alone
+        # saw a positive 1, kept the negative limit in the executed SQL, and SQLite treats
+        # a negative limit as no limit at all. Require a plain integer literal.
+        if not isinstance(literal, exp.Literal) or not literal.is_int:
+            raise SafetyError("unsafe_sql", "LIMIT must be a static integer literal.")
+        requested = int(literal.name)
         if requested < 1:
             raise SafetyError("unsafe_sql", "LIMIT must be positive.")
         if requested > max_rows:

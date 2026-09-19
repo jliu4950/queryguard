@@ -121,3 +121,24 @@ def test_legitimate_scoped_query_still_runs() -> None:
     sql = apply_role_filter(validated, Role.SALES_REP, "rep_alex")
     assert ":authorized_user_id" in sql
     assert "customer_assignments" in sql
+
+
+# --- A negative LIMIT survived the row cap ----------------------------------------------
+# `LIMIT -1` parses as Neg(Literal(1)); reading .name saw "1" and let it through, and
+# SQLite treats a negative limit as no limit.
+
+
+def test_negative_limit_is_rejected() -> None:
+    with pytest.raises(SafetyError) as error:
+        analyst("SELECT customers.name AS n FROM customers LIMIT -1")
+    assert error.value.code == "unsafe_sql"
+
+
+def test_non_literal_limit_is_rejected() -> None:
+    with pytest.raises(SafetyError):
+        analyst("SELECT customers.name AS n FROM customers LIMIT 1 + 1")
+
+
+def test_oversized_limit_is_clamped_not_rejected() -> None:
+    validated = analyst("SELECT customers.name AS n FROM customers LIMIT 100000", max_rows=50)
+    assert "LIMIT 50" in validated.sql
