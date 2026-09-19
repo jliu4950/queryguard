@@ -25,14 +25,23 @@ INJECTION_RE = re.compile(
     r"(?:ignore\s+(?:all|previous)|system\s+prompt|jailbreak|\b(?:drop|delete|insert|update|alter|create)\b)",
     re.IGNORECASE,
 )
-BANNED_FUNCTIONS = {
-    "pg_sleep",
-    "dblink",
-    "load_file",
-    "read_file",
-    "write_file",
-    "copy",
-    "current_setting",
+# An allowlist, not a blocklist. sqlglot parses any function it does not know -- including
+# load_file, pg_sleep and dblink -- as exp.Anonymous, whose sql_name() is the literal string
+# "ANONYMOUS". A name-based blocklist therefore never matches the functions it exists to
+# stop. Anything outside this set is refused, so an unknown function fails closed.
+ALLOWED_FUNCTIONS = {
+    "AVG",
+    "CAST",
+    "COALESCE",
+    "COUNT",
+    "LOWER",
+    "MAX",
+    "MIN",
+    "NULLIF",
+    "ROUND",
+    "SUBSTRING",
+    "SUM",
+    "UPPER",
 }
 SENSITIVE_COLUMNS = {"email", "phone", "password", "token"}
 
@@ -74,8 +83,13 @@ def validate_sql(sql: str, catalog: SchemaCatalog, role: Role, max_rows: int) ->
     if any(tree.find(node) for node in banned_nodes):
         raise SafetyError("unsafe_sql", "Write, DDL, and transaction commands are not allowed.")
     for function in tree.find_all(exp.Func):
-        if function.sql_name().lower() in BANNED_FUNCTIONS:
-            raise SafetyError("unsafe_sql", "The query uses a blocked function.")
+        # sqlglot models AND/OR as Func subclasses; they are operators, not callable functions.
+        if isinstance(function, exp.Connector):
+            continue
+        if isinstance(function, exp.Anonymous):
+            raise SafetyError("unsafe_sql", "Unrecognized SQL functions are not allowed.")
+        if function.sql_name().upper() not in ALLOWED_FUNCTIONS:
+            raise SafetyError("unsafe_sql", "The query uses a function outside the approved set.")
     cte_names = {cte.alias_or_name for cte in tree.find_all(exp.CTE)}
     tables = {
         table.name
@@ -92,6 +106,12 @@ def validate_sql(sql: str, catalog: SchemaCatalog, role: Role, max_rows: int) ->
     aliases = {table.alias_or_name: table.name for table in tree.find_all(exp.Table)}
     selectable_aliases = {alias.alias for alias in tree.find_all(exp.Alias) if alias.alias}
     available_unqualified = set().union(*(catalog.allowed_columns(table) for table in tables))
+    # `SELECT *` parses as a bare exp.Star with no exp.Column node, so checking columns
+    # alone let it through -- and with no column to inspect, the sensitive-field rule below
+    # never fired either. Aggregate stars such as COUNT(*) expose no column values.
+    for star in tree.find_all(exp.Star):
+        if not isinstance(star.parent, exp.Func):
+            raise SafetyError("unsafe_sql", "Wildcard selection is not allowed.")
     for column in tree.find_all(exp.Column):
         name = column.name
         if name == "*":
