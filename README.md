@@ -8,16 +8,30 @@ This is an independent portfolio project. It does not use or reference company c
 
 ## Architecture
 
+Every request passes the same pipeline. The two shaded stages are the ones that make
+the difference: the LLM is the only untrusted step, and everything after it is
+deterministic server-side enforcement rather than prompt instruction.
+
 ```mermaid
-flowchart LR
-  U[Static dashboard / API client] --> I[Input validation]
-  I --> R[Versioned schema catalog\nkeyword retrieval]
-  R --> L[Demo or compatible LLM provider]
-  L --> V[sqlglot SQL AST validation]
-  V --> A[Server-side row-level authorization]
-  A --> C[TTL memory cache]
-  C --> D[(SQLite fictional data)]
-  D --> T[Answer, SQL, trace]
+flowchart TB
+  U["Static dashboard / API client"] --> I["Input validation<br/><i>blocked instruction patterns</i>"]
+  I --> R["Versioned schema catalog<br/><i>keyword / BM25 retrieval</i>"]
+  R --> L["LLM provider<br/><i>demo or OpenAI-compatible</i>"]
+
+  subgraph guard ["Untrusted output is validated, never trusted"]
+    direction TB
+    V["sqlglot SQL AST validation<br/><i>read-only allowlist</i>"]
+    A["Row-level authorization<br/><i>server-injected predicate</i>"]
+    V --> A
+  end
+
+  L -- "generated SQL" --> V
+  A --> C["TTL memory cache"]
+  C --> D[("SQLite fictional data")]
+  D --> T["Answer + SQL + execution trace"]
+
+  classDef untrusted fill:#fde68a,stroke:#b45309,color:#1f2937
+  class L untrusted
 ```
 
 ## Key capabilities
