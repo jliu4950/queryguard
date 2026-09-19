@@ -65,6 +65,8 @@ QueryGuard treats LLM output as untrusted input. It accepts one read-only `SELEC
 
 `sales_rep` access is enforced server-side by injecting an assignment predicate before execution. The demo identities `rep_alex` and `rep_sam` can only access their assigned customers, orders, and related order items. The request `role` and `user_id` fields are intentionally a simplified demo boundary; they are not a real authentication or identity system.
 
+For `sales_rep`, authorization is enforced by appending one predicate to one `WHERE` clause, which is only sound when the statement has a single scope to constrain. CTEs, subqueries, and repeated table references are therefore refused for that role: each introduces a scope the predicate never reaches. Functions are checked against an allowlist, so an unrecognized function fails closed.
+
 Structured audit events use a question digest rather than raw question text. See [docs/security.md](docs/security.md) for the detailed policy model.
 
 ## Quick start
@@ -130,17 +132,47 @@ The adapter sends the request role, retrieved schema context, and SQL-only safet
 
 ## Evaluation
 
+Two suites, measuring different things.
+
+### Correctness — `evals/run_evals.py`
+
 The versioned evaluation suite contains 25 fictional demo cases. Successful cases compare expected columns and execution results; refusal cases compare explicit expected rejections. The suite does not compare SQL strings.
 
 It reports execution accuracy, authorization violations, safety interception rate, and P50/P95 pipeline latency only after a local run. Those measurements apply only to this deterministic demo dataset and must not be interpreted as general model quality, production performance, or user-scale evidence.
+
+### Security — `evals/run_adversarial.py`
+
+The correctness suite cannot measure security: the demo provider never emits an attack, so
+every control downstream of it is only ever exercised on benign input. The adversarial suite
+assumes the opposite. For its `model_output` cases the provider is replaced by one that
+returns attacker-chosen SQL, which is what a jailbroken or prompt-injected model effectively
+gives you; the `question` cases leave the real provider in place and attack the input layer.
+
+The pass criterion is **disclosure**, not refusal — refusing everything would score perfectly
+and be useless. A case fails when a returned cell is something the requesting principal is not
+entitled to see, judged against ground truth read from the database at run time rather than
+from per-case snapshots. The runner exits non-zero on any failure, so CI fails on a real
+regression.
+
+44 cases across 42 techniques: 34 refused, 10 executed and contained, **0 disclosures**.
+
+Writing it found six bypasses in controls this README already claimed to have — including
+`SELECT *` disclosing every customer email, a CTE letting a sales rep read another rep's
+customers, and a function blocklist that could never match the functions it named. All six
+are fixed and pinned by regression tests. Replayed against the pre-fix code the same 44 cases
+produce 5 disclosures, 1 query reaching the database, and 8 requirement failures.
+
+Findings, root causes, and the gaps that remain:
+[docs/adversarial-evaluation.md](docs/adversarial-evaluation.md).
 
 ## Verification results
 
 Local verification was run with Python 3.13.9 and `LLM_PROVIDER=demo`:
 
 - `ruff format apps/api evals --check` and `ruff check apps/api evals` passed.
-- `pytest -q` passed: **22 tests passed**. The run emitted two upstream FastAPI/Starlette deprecation warnings.
+- `pytest -q` passed: **36 tests passed**. The run emitted two upstream FastAPI/Starlette deprecation warnings.
 - The 25-case evaluation completed with **execution accuracy 1.0**, **0 authorization violations**, **safety interception rate 1.0**, **P50 0.67 ms**, and **P95 1.54 ms**.
+- The 44-case adversarial evaluation completed with **0 disclosures**, **0 queries reaching the database**, and **0 requirement failures** (34 refused, 10 executed and contained).
 - Local API checks returned `200` for `/health`, analyst monthly revenue, and `rep_alex` assigned-customer orders. A prompt-injection request returned a structured `422` rejection, and the sales-rep SQL contained the server-side `customer_assignments` predicate.
 
 These results are limited to the repository's fictional, deterministic demo data and the local verification environment. The optional real provider remains mock-tested only.
@@ -148,6 +180,9 @@ These results are limited to the repository's fictional, deterministic demo data
 ## Limitations and future work
 
 - The demo provider covers a small, deterministic set of question types; it is not a general Text-to-SQL model.
+- The input filter is a regex blocklist and is trivially evadable; the adversarial suite documents specific phrasings that get past it. It is a speed bump, not a boundary — authorization is what actually contains those requests.
+- Rejecting every CTE and subquery for sales reps is sound but blunt: legitimate analytical queries are refused along with the attacks. A scope-aware rewrite that constrains every reference would be strictly better.
+- Adversarial coverage is 42 hand-written techniques informed by reading the validator, which is biased toward bugs in code already under suspicion. It is not fuzzing and not a third-party red-team set.
 - Identity is passed in the request and is not verified. There is no session handling, tenant isolation, or production policy-management system.
 - The cache is process-local and clears on restart.
 - Retrieval is keyword-based rather than semantic/vector retrieval.
@@ -159,5 +194,7 @@ These results are limited to the repository's fictional, deterministic demo data
 1. Why row-level authorization must be a server-side query transformation rather than a prompt instruction.
 2. Why a versioned schema allowlist plus SQL AST validation is more defensible than regex-only filtering.
 3. How a deterministic provider makes demos, CI, and security regression tests reproducible without an API key.
-4. Why surfacing retrieved schema context makes generated SQL easier to review and debug.
-5. Why SQLite and a small cache interface are useful constraints for a portable, testable security demo before adding external infrastructure.
+4. Why a security suite has to judge disclosure rather than refusal, and how refusing everything would score perfectly while being useless.
+5. Why the function blocklist could never fire, and why an allowlist is the only version of that control that fails closed.
+6. Why surfacing retrieved schema context makes generated SQL easier to review and debug.
+7. Why SQLite and a small cache interface are useful constraints for a portable, testable security demo before adding external infrastructure.
